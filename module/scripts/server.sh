@@ -19,6 +19,8 @@ PANEL="$MODDIR/bin/wgpanel"
 PANEL_PID="$RUNTIME/wgpanel.pid"
 SOCKET="$RUNTIME/wg0.sock"
 BACKEND_FILE="$RUNTIME/backend"
+VPN_ROUTE_TABLE=51820
+VPN_ROUTE_PREF=1001
 
 write_log() {
   mkdir -p "$LOGDIR"
@@ -74,7 +76,9 @@ init() {
 WG_ADDRESS=10.66.66.1/24
 WG_PORT=51820
 ENDPOINT=$endpoint
-ROUTING_MODE=vpn-only
+# Full tunnel is the default: client profiles route IPv4 traffic through the
+# phone and the server applies forwarding/NAT rules on its upstream network.
+ROUTING_MODE=full
 LAN_CIDR=
 EOF
   chmod 600 "$CONFIG" "$PRIVATE_KEY" "$PUBLIC_KEY" "$PEERS"
@@ -83,23 +87,44 @@ EOF
 
 apply_routes() {
   [ "$ROUTING_MODE" = "vpn-only" ] && return 0
+  # Android commonly keeps the default route in a per-network table (for
+  # example `wlan0`) rather than the main table, so `ip route show default`
+  # can be empty even while the phone has working internet access.
   wan=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+  [ -n "$wan" ] || wan=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}')
   [ -n "$wan" ] || { write_log WARN "no default route for $ROUTING_MODE mode"; return 0; }
-  iptables -C FORWARD -i wg0 -o "$wan" -j ACCEPT 2>/dev/null || iptables -A FORWARD -i wg0 -o "$wan" -j ACCEPT
-  iptables -C FORWARD -i "$wan" -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -A FORWARD -i "$wan" -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
-  iptables -t nat -C POSTROUTING -s 10.66.66.0/24 -o "$wan" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 10.66.66.0/24 -o "$wan" -j MASQUERADE
+  # Android's main table commonly has no default route. Route VPN-sourced
+  # packets through a module-owned table based on the active network route.
+  gateway=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "via") { print $(i + 1); exit }}')
+  if [ -n "$gateway" ]; then
+    ip route replace default via "$gateway" dev "$wan" table "$VPN_ROUTE_TABLE" || write_log WARN "could not set VPN default route via $wan"
+  else
+    ip route replace default dev "$wan" table "$VPN_ROUTE_TABLE" || write_log WARN "could not set VPN default route via $wan"
+  fi
+  ip rule add pref "$VPN_ROUTE_PREF" from 10.66.66.0/24 lookup "$VPN_ROUTE_TABLE" 2>/dev/null || true
+  # Android's tetherctrl_FORWARD chain ends in DROP. Insert module rules
+  # before Android-owned chains, rather than appending unreachable rules.
+  while iptables -D FORWARD -i wg0 -o "$wan" -j ACCEPT 2>/dev/null; do :; done
+  while iptables -D FORWARD -i "$wan" -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
+  while iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o "$wan" -j MASQUERADE 2>/dev/null; do :; done
+  iptables -I FORWARD 1 -i wg0 -o "$wan" -j ACCEPT
+  iptables -I FORWARD 1 -i "$wan" -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+  iptables -t nat -I POSTROUTING 1 -s 10.66.66.0/24 -o "$wan" -j MASQUERADE
   printf '%s\n' "$wan" > "$RUNTIME/wan-interface"
   write_log INFO "routing mode=$ROUTING_MODE wan=$wan"
 }
 
 remove_routes() {
-  [ -f "$RUNTIME/wan-interface" ] || return 0
-  wan=$(cat "$RUNTIME/wan-interface")
-  while iptables -D FORWARD -i wg0 -o "$wan" -j ACCEPT 2>/dev/null; do :; done
-  while iptables -D FORWARD -i "$wan" -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
-  while iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o "$wan" -j MASQUERADE 2>/dev/null; do :; done
-  rm -f "$RUNTIME/wan-interface"
-  write_log INFO "routing rules removed wan=$wan"
+  if [ -f "$RUNTIME/wan-interface" ]; then
+    wan=$(cat "$RUNTIME/wan-interface")
+    while iptables -D FORWARD -i wg0 -o "$wan" -j ACCEPT 2>/dev/null; do :; done
+    while iptables -D FORWARD -i "$wan" -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
+    while iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o "$wan" -j MASQUERADE 2>/dev/null; do :; done
+    rm -f "$RUNTIME/wan-interface"
+    write_log INFO "routing rules removed wan=$wan"
+  fi
+  while ip rule del pref "$VPN_ROUTE_PREF" from 10.66.66.0/24 lookup "$VPN_ROUTE_TABLE" 2>/dev/null; do :; done
+  ip route flush table "$VPN_ROUTE_TABLE" 2>/dev/null || true
 }
 
 vpn_cidr() {
@@ -227,6 +252,15 @@ set_routing() {
   remove_routes
   sed "s|^ROUTING_MODE=.*|ROUTING_MODE=$mode|" "$CONFIG" > "$CONFIG.new" || fail "could not update routing mode"
   mv "$CONFIG.new" "$CONFIG"
+  ROUTING_MODE=$mode
+  # Existing peer files are exported client configurations.  Keep their
+  # AllowedIPs in sync with the selected server routing mode, otherwise a
+  # client can remain limited to the VPN subnet after enabling full tunnel.
+  allowed=$(client_allowed_ips)
+  for peer_config in "$DATA"/peers/*.conf; do
+    [ -f "$peer_config" ] || continue
+    sed "s|^AllowedIPs = .*|AllowedIPs = $allowed|" "$peer_config" > "$peer_config.new" && mv "$peer_config.new" "$peer_config"
+  done
   write_log INFO "routing mode updated mode=$mode"
   if ip link show wg0 >/dev/null 2>&1; then apply_routes; fi
 }

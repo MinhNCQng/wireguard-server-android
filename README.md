@@ -26,7 +26,7 @@ A target phone needs:
 
 ## Install
 
-1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.1.zip) from KernelSU Manager.
+1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.3.zip) from KernelSU Manager.
 2. Reboot when KernelSU stages the module.
 3. Forward `51820/UDP` on the home router to the phone’s reserved LAN IP.
 
@@ -83,6 +83,9 @@ Enter your subdomain and token in the panel. It updates immediately, at boot, an
 | `full` | All IPv4 traffic through the phone |
 
 Set the LAN CIDR (for example `192.168.1.0/24`) before enabling LAN mode. The module removes its own routing/NAT rules when stopped.
+
+New servers default to `full`. Changing routing mode also refreshes the
+exported peer profiles; re-download or re-import a profile after changing it.
 
 ## Logs
 
