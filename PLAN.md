@@ -47,7 +47,7 @@ Home router public address
 Android phone
   Wi-Fi/LAN: 192.168.1.50
   WireGuard: 10.66.66.1/24 (wg0)
-  VPN-only panel: http://10.66.66.1:8080
+  VPN-only panel: http://10.66.66.1:51821
         |
         +-- home LAN: 192.168.1.0/24 (optional)
         +-- internet exit through phone Wi-Fi (optional full tunnel)
@@ -157,7 +157,7 @@ Interface name:       wg0
 WireGuard address:    10.66.66.1/24
 VPN subnet:           10.66.66.0/24
 WireGuard port:       51820/UDP
-Management address:   10.66.66.1:8080
+Management address:   10.66.66.1:51821
 Peer pool:            10.66.66.2 - 10.66.66.254
 Mode:                 VPN-only initially
 DuckDNS interval:     10 minutes
@@ -222,7 +222,7 @@ Do not touch unrelated interfaces, routes, firewall rules, or KernelSU modules.
 6. Apply every enabled peer using exact `wg set` arguments or a validated generated configuration.
 7. Enable `net.ipv4.ip_forward=1` while the server is active.
 8. Apply selected routing mode.
-9. Start the VPN-only management listener on `10.66.66.1:8080`.
+9. Start the VPN-only management listener on `10.66.66.1:51821`.
 10. Write status and log result.
 
 All actions must be idempotent: running Start twice must not duplicate NAT rules, create duplicate processes, or corrupt peer configuration.
@@ -306,7 +306,7 @@ Its JavaScript calls only a fixed module command dispatcher. The dispatcher rece
 This panel is for devices already connected through WireGuard:
 
 ```text
-http://10.66.66.1:8080
+http://10.66.66.1:51821
 ```
 
 It has the same full-management capability because this is a personal deployment. It must:
@@ -416,7 +416,7 @@ Emit concise duplicate events to Android logcat with tag `WGServerKSU`.
 - Bind/restrict access to `wg0` address.
 - Full peer/server/log actions.
 
-**Exit criteria:** a connected peer can create a new peer from `10.66.66.1:8080`; the same port is unreachable from home Wi-Fi and the public internet.
+**Exit criteria:** a connected peer can create a new peer from `10.66.66.1:51821`; the same port is unreachable from home Wi-Fi and the public internet.
 
 ### Milestone 6: LAN and full-tunnel modes
 
@@ -433,7 +433,7 @@ Emit concise duplicate events to Android logcat with tag `WGServerKSU`.
 - [ ] DuckDNS name resolves to router public IPv4.
 - [ ] Remote client connects via mobile data using DuckDNS endpoint.
 - [ ] Latest handshake and traffic counters appear for the peer.
-- [ ] Connected VPN client reaches only the VPN panel at `10.66.66.1:8080`.
+- [ ] Connected VPN client reaches only the VPN panel at `10.66.66.1:51821`.
 - [ ] Connected client can create, export, and revoke a peer.
 - [ ] VPN-only, home-LAN, and full-tunnel modes behave as selected.
 - [ ] DuckDNS automatically updates after reboot/network recovery.

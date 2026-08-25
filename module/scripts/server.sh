@@ -95,7 +95,7 @@ start_panel() {
   if [ -f "$PANEL_PID" ] && kill -0 "$(cat "$PANEL_PID")" 2>/dev/null; then return 0; fi
   "$PANEL" "$MODDIR" >> "$LOGFILE" 2>&1 &
   echo $! > "$PANEL_PID"
-  write_log WARN "management panel started publicly address=0.0.0.0:8080"
+  write_log WARN "management panel started publicly address=0.0.0.0:51821"
 }
 
 start() {

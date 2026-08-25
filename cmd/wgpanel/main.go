@@ -336,7 +336,7 @@ func main() {
 	m.HandleFunc("/api/duckdns", a.duckDNS)
 	m.HandleFunc("/api/duckdns/update", a.forceDuckDNS)
 	m.HandleFunc("/api/endpoint", a.endpoint)
-	if err := http.ListenAndServe("0.0.0.0:8080", m); err != nil {
+	if err := http.ListenAndServe("0.0.0.0:51821", m); err != nil {
 		panic(err)
 	}
 }

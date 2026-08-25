@@ -26,7 +26,7 @@ A target phone needs:
 
 ## Install
 
-1. Install [the release ZIP](dist/wireguard-server-ksu-v0.4.1.zip) from KernelSU Manager.
+1. Install [the release ZIP](dist/wireguard-server-ksu-v0.4.2.zip) from KernelSU Manager.
 2. Reboot when KernelSU stages the module.
 3. Forward `51820/UDP` on the home router to the phone’s reserved LAN IP.
 
@@ -39,7 +39,7 @@ Remote client → UDP 51820 → DuckDNS/public IP → router → Android phone
 
 Phone LAN:       192.168.1.x
 WireGuard server: 10.66.66.1/24
-Panel:            http://PHONE_LAN_IP:8080
+Panel:            http://PHONE_LAN_IP:51821
 ```
 
 ## Endpoint choices
@@ -63,12 +63,12 @@ The panel supports manual endpoint entry and a **Use current LAN endpoint** sugg
 Open from the LAN:
 
 ```text
-http://PHONE_LAN_IP:8080
+http://PHONE_LAN_IP:51821
 ```
 
 It shows server state, configured/current LAN endpoint, active peers, DuckDNS state, last update, public IP, and logs. It also creates/revokes peers and exports configs or QR codes.
 
-To expose it publicly, forward `8080/TCP` to the phone and use `http://YOUR_DUCKDNS_NAME:8080`. This grants full VPN administration to anyone who can reach the panel.
+To expose it publicly, forward `51821/TCP` to the phone and use `http://YOUR_DUCKDNS_NAME:51821`. This grants full VPN administration to anyone who can reach the panel.
 
 ## DuckDNS
 
