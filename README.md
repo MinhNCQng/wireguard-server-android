@@ -27,7 +27,7 @@ A target phone needs:
 
 ## Install
 
-1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.5.zip) from KernelSU Manager.
+1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.7.zip) from KernelSU Manager.
 2. Reboot when KernelSU stages the module.
 3. Forward `51820/UDP` on the home router to the phone’s reserved LAN IP.
 

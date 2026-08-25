@@ -1,6 +1,6 @@
 id=wireguard-server-ksu
 name=WireGuard Server (KernelSU)
-version=0.6.5
-versionCode=26
+version=0.6.7
+versionCode=28
 author=minhmap
 description=Automatic kernel-native WireGuard with wireguard-go fallback; configure in WebUI.

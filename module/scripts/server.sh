@@ -23,6 +23,7 @@ VPN_ROUTE_TABLE=51820
 VPN_ROUTE_PREF=1001
 WAKE_LOCK_NAME=wireguard-server-ksu
 WIFI_PERF_FILE="$RUNTIME/wifi-high-performance"
+WATCHER_PID="$RUNTIME/network-watch.pid"
 
 write_log() {
   mkdir -p "$LOGDIR"
@@ -91,6 +92,12 @@ load_config() {
 valid_endpoint() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9.-]+:[0-9]{1,5}$'; }
 valid_name() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_-]{1,32}$'; }
 
+detect_wan() {
+  wan=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+  [ -n "$wan" ] || wan=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}')
+  printf '%s\n' "$wan"
+}
+
 init() {
   migrate_data || fail "cannot prepare persistent module data"
   endpoint=${1:-CHANGE-ME.duckdns.org:51820}
@@ -123,8 +130,7 @@ apply_routes() {
   # Android commonly keeps the default route in a per-network table (for
   # example `wlan0`) rather than the main table, so `ip route show default`
   # can be empty even while the phone has working internet access.
-  wan=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
-  [ -n "$wan" ] || wan=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}')
+  wan=$(detect_wan)
   [ -n "$wan" ] || { write_log WARN "no default route for $ROUTING_MODE mode"; return 0; }
   # Android's main table commonly has no default route. Route VPN-sourced
   # packets through a module-owned table based on the active network route.
@@ -159,6 +165,40 @@ remove_routes() {
   fi
   while ip rule del pref "$VPN_ROUTE_PREF" from 10.66.66.0/24 lookup "$VPN_ROUTE_TABLE" 2>/dev/null; do :; done
   ip route flush table "$VPN_ROUTE_TABLE" 2>/dev/null || true
+}
+
+reconcile_network() {
+  load_config
+  ip link show wg0 >/dev/null 2>&1 || return 0
+  remove_routes
+  disable_wifi_high_performance
+  apply_routes
+}
+
+stop_network_watcher() {
+  if [ -f "$WATCHER_PID" ]; then
+    kill "$(cat "$WATCHER_PID")" 2>/dev/null || true
+    rm -f "$WATCHER_PID"
+  fi
+}
+
+watch_network() {
+  while ip link show wg0 >/dev/null 2>&1; do
+    current_wan=$(cat "$RUNTIME/wan-interface" 2>/dev/null || true)
+    detected_wan=$(detect_wan)
+    if [ "$detected_wan" != "$current_wan" ]; then
+      write_log INFO "upstream network changed old=${current_wan:-none} new=${detected_wan:-none}"
+      reconcile_network
+    fi
+    sleep 10
+  done
+}
+
+start_network_watcher() {
+  stop_network_watcher
+  "$0" watch-network >> "$LOGFILE" 2>&1 &
+  printf '%s\n' "$!" > "$WATCHER_PID"
+  write_log INFO "network watcher started"
 }
 
 vpn_cidr() {
@@ -257,10 +297,29 @@ start() {
   apply_routes
   start_panel
   acquire_wake_lock
+  start_network_watcher
   write_log INFO "wg0 started port=$WG_PORT address=$WG_ADDRESS"
 }
 
+boot_start() {
+  [ -f "$CONFIG" ] || return 0
+  load_config
+  # KernelSU can run service.sh before Android has restored Wi-Fi/mobile
+  # routing tables. Wait for an upstream route so full-tunnel rules are not
+  # skipped permanently after a reboot.
+  if [ "$ROUTING_MODE" != "vpn-only" ]; then
+    attempt=0
+    while [ "$attempt" -lt 30 ] && [ -z "$(detect_wan)" ]; do
+      sleep 2
+      attempt=$((attempt + 1))
+    done
+    [ -n "$(detect_wan)" ] || write_log WARN "no upstream route after boot wait; starting anyway"
+  fi
+  start
+}
+
 stop() {
+  stop_network_watcher
   release_wake_lock
   disable_wifi_high_performance
   if [ -f "$PANEL_PID" ]; then kill "$(cat "$PANEL_PID")" 2>/dev/null || true; rm -f "$PANEL_PID"; fi
@@ -378,7 +437,8 @@ status() {
 case "${1:-}" in
   init) shift; init "$@" ;;
   start) start ;;
-  boot-start) [ -f "$CONFIG" ] && start || true ;;
+  boot-start) boot_start || true ;;
+  watch-network) watch_network ;;
   stop) stop ;;
   restart) stop; start ;;
   add-peer) shift; add_peer "$@" ;;
