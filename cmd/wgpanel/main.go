@@ -41,7 +41,7 @@ func (a app) run(args ...string) (string, error) {
 	return string(b), err
 }
 func (a app) data(parts ...string) string {
-	return filepath.Join(append([]string{a.moddir, "data"}, parts...)...)
+	return filepath.Join(append([]string{"/data/adb/wireguard-server-ksu"}, parts...)...)
 }
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

@@ -26,7 +26,7 @@ A target phone needs:
 
 ## Install
 
-1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.0.zip) from KernelSU Manager.
+1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.1.zip) from KernelSU Manager.
 2. Reboot when KernelSU stages the module.
 3. Forward `51820/UDP` on the home router to the phone’s reserved LAN IP.
 
@@ -89,6 +89,8 @@ Set the LAN CIDR (for example `192.168.1.0/24`) before enabling LAN mode. The mo
 - Panel log card
 - Android logcat tag: `WGServerKSU`
 - Module file: `data/logs/server.log`
+
+Server keys, peers, DuckDNS settings, and logs are stored under `/data/adb/wireguard-server-ksu`, outside the replaceable KernelSU module directory, so they survive module ZIP updates.
 
 ## Repository layout
 

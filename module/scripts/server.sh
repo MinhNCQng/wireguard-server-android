@@ -2,7 +2,10 @@
 set -u
 
 MODDIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-DATA="$MODDIR/data"
+# KernelSU replaces the module directory during ZIP updates. Keep all mutable
+# configuration outside it so keys, peers, DuckDNS settings, and logs survive.
+LEGACY_DATA="$MODDIR/data"
+DATA="/data/adb/wireguard-server-ksu"
 CONFIG="$DATA/config/server.env"
 PRIVATE_KEY="$DATA/config/server-private.key"
 PUBLIC_KEY="$DATA/config/server-public.key"
@@ -28,7 +31,22 @@ write_log() {
 
 fail() { write_log ERROR "$1"; printf '%s\n' "$1" >&2; exit 1; }
 
+migrate_data() {
+  [ -d "$DATA" ] && return 0
+  if [ -d "$LEGACY_DATA" ]; then
+    mkdir -p "$(dirname "$DATA")" || return 1
+    mv "$LEGACY_DATA" "$DATA" 2>/dev/null || {
+      mkdir -p "$DATA" || return 1
+      cp -a "$LEGACY_DATA"/. "$DATA"/ || return 1
+    }
+  else
+    mkdir -p "$DATA" || return 1
+  fi
+  chmod 700 "$DATA" 2>/dev/null || true
+}
+
 load_config() {
+  migrate_data || fail "cannot prepare persistent module data"
   [ -f "$CONFIG" ] || fail "server is not configured"
   # This file is module-generated and values are validated before writing.
   . "$CONFIG"
@@ -39,6 +57,7 @@ valid_endpoint() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9.-]+:[0-9]{1,5}$'; }
 valid_name() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_-]{1,32}$'; }
 
 init() {
+  migrate_data || fail "cannot prepare persistent module data"
   endpoint=${1:-CHANGE-ME.duckdns.org:51820}
   valid_endpoint "$endpoint" || fail "invalid endpoint"
   [ ! -f "$CONFIG" ] || fail "server already configured"
@@ -150,6 +169,7 @@ start_native_or_fallback() {
 }
 
 start() {
+  migrate_data || fail "cannot prepare persistent module data"
   load_config
   [ -x "$WGGO" ] && [ -x "$WGCTL" ] || fail "module binaries are missing"
   mkdir -p "$RUNTIME"
@@ -272,6 +292,7 @@ set_endpoint() {
 }
 
 status() {
+  migrate_data || return 1
   if ! ip link show wg0 >/dev/null 2>&1; then printf 'status=stopped\n'; return 0; fi
   backend=$(cat "$BACKEND_FILE" 2>/dev/null || true)
   if [ "$backend" = userspace ] || [ -S "$SOCKET" ]; then
