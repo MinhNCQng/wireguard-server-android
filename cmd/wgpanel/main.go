@@ -115,7 +115,7 @@ func (a app) peers(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	var result []peer
+	result := make([]peer, 0)
 	for _, l := range strings.Split(readTrim(a.data("config", "peers.txt")), "\n") {
 		p := strings.Split(l, "|")
 		if len(p) == 3 {
