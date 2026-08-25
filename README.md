@@ -26,7 +26,7 @@ A target phone needs:
 
 ## Install
 
-1. Install [the release ZIP](dist/wireguard-server-ksu-v0.3.8.zip) from KernelSU Manager.
+1. Install [the release ZIP](dist/wireguard-server-ksu-v0.3.9.zip) from KernelSU Manager.
 2. Reboot when KernelSU stages the module.
 3. Forward `51820/UDP` on the home router to the phone’s reserved LAN IP.
 
@@ -47,7 +47,7 @@ Panel:            http://PHONE_LAN_IP:8080
 For remote clients, use a hostname:
 
 ```ini
-Endpoint = minhmap.duckdns.org:51820
+Endpoint = your-name.duckdns.org:51820
 ```
 
 For clients on the same home LAN, use the phone LAN IP:
