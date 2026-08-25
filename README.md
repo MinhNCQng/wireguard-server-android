@@ -1,11 +1,11 @@
 # WireGuard Server for KernelSU
 
-Use a rooted Android phone as a WireGuard server through a self-contained KernelSU module. It uses the included userspace `wireguard-go` binary, so no kernel WireGuard module is required.
+Use a rooted Android phone as a WireGuard server through a self-contained KernelSU module. At startup it automatically uses kernel-native WireGuard when the phone supports it; otherwise it uses the included `wireguard-go` userspace fallback.
 
 ## Features
 
 - WireGuard server on `wg0` (UDP `51820` by default)
-- Built-in `wireguard-go`, controller, and browser management panel
+- Automatic kernel-native WireGuard with `wireguard-go` fallback, controller, and browser management panel
 - Peer creation/revocation, `.conf` download, QR PNG export, and activity status
 - DuckDNS update on save, boot, and every 10 minutes
 - VPN-only, home-LAN, and full-tunnel routing modes
@@ -26,11 +26,11 @@ A target phone needs:
 
 ## Install
 
-1. Install [the release ZIP](dist/wireguard-server-ksu-v0.5.0.zip) from KernelSU Manager.
+1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.0.zip) from KernelSU Manager.
 2. Reboot when KernelSU stages the module.
 3. Forward `51820/UDP` on the home router to the phone’s reserved LAN IP.
 
-The module contains all binaries; no separate APK or WireGuard kernel module is needed.
+The module contains all binaries; no separate APK is needed. Kernel support is detected automatically and is not required because `wireguard-go` remains bundled as a fallback.
 
 ## Network layout
 
@@ -66,7 +66,7 @@ Open from the LAN:
 http://PHONE_LAN_IP:51821
 ```
 
-It shows server state, configured/current LAN endpoint, active peers, DuckDNS state, last update, public IP, and logs. It also creates/revokes peers and exports configs or QR codes.
+It shows server state, the selected WireGuard backend, configured/current LAN endpoint, active peers, DuckDNS state, last update, public IP, and logs. It also creates/revokes peers and exports configs or QR codes.
 
 To expose it publicly, forward `51821/TCP` to the phone and use `http://YOUR_DUCKDNS_NAME:51821`. This grants full VPN administration to anyone who can reach the panel.
 

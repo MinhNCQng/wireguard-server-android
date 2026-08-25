@@ -15,6 +15,7 @@ WGCTL="$MODDIR/bin/wgctl"
 PANEL="$MODDIR/bin/wgpanel"
 PANEL_PID="$RUNTIME/wgpanel.pid"
 SOCKET="$RUNTIME/wg0.sock"
+BACKEND_FILE="$RUNTIME/backend"
 
 write_log() {
   mkdir -p "$LOGDIR"
@@ -115,21 +116,62 @@ start_panel() {
   write_log WARN "management panel started publicly address=0.0.0.0:51821"
 }
 
+configure_native() {
+  "$WGCTL" native-config --device wg0 --private-file "$PRIVATE_KEY" --port "$WG_PORT" --peers-file "$PEERS" >> "$LOGFILE" 2>&1
+}
+
+configure_userspace() {
+  "$WGCTL" configure --socket "$SOCKET" --private-file "$PRIVATE_KEY" --port "$WG_PORT" --peers-file "$PEERS" >> "$LOGFILE" 2>&1
+}
+
+start_userspace() {
+  "$WGGO" wg0 >> "$LOGFILE" 2>&1 || return 1
+  i=0
+  while [ ! -S "$SOCKET" ] && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done
+  [ -S "$SOCKET" ] || return 1
+  configure_userspace || return 1
+  printf '%s\n' userspace > "$BACKEND_FILE"
+  write_log WARN "WireGuard backend=wireguard-go (kernel native unavailable)"
+}
+
+start_native_or_fallback() {
+  if ip link add wg0 type wireguard >> "$LOGFILE" 2>&1; then
+    if configure_native; then
+      printf '%s\n' kernel > "$BACKEND_FILE"
+      write_log INFO "WireGuard backend=kernel native"
+      return 0
+    fi
+    write_log WARN "native WireGuard configuration failed; falling back to wireguard-go"
+    ip link delete wg0 >/dev/null 2>&1 || true
+  else
+    write_log WARN "native WireGuard interface unavailable; falling back to wireguard-go"
+  fi
+  start_userspace
+}
+
 start() {
   load_config
   [ -x "$WGGO" ] && [ -x "$WGCTL" ] || fail "module binaries are missing"
   mkdir -p "$RUNTIME"
   if ip link show wg0 >/dev/null 2>&1; then
     write_log INFO "wg0 already exists; reconciling configuration"
+    if [ -S "$SOCKET" ]; then
+      configure_userspace || fail "WireGuard userspace configuration failed"
+      printf '%s\n' userspace > "$BACKEND_FILE"
+    else
+      if configure_native; then
+        printf '%s\n' kernel > "$BACKEND_FILE"
+      else
+        write_log WARN "existing native wg0 could not be configured; falling back to wireguard-go"
+        ip link delete wg0 >/dev/null 2>&1 || fail "could not remove failed native wg0"
+        start_userspace || fail "wireguard-go fallback could not start"
+      fi
+    fi
   else
-    "$WGGO" wg0 >> "$LOGFILE" 2>&1 || fail "wireguard-go could not create wg0"
-    i=0
-    while [ ! -S "$SOCKET" ] && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done
-    [ -S "$SOCKET" ] || fail "WireGuard UAPI socket did not appear"
-    ip addr replace "$WG_ADDRESS" dev wg0 || fail "cannot assign WireGuard address"
-    ip link set up dev wg0 || fail "cannot bring wg0 up"
+    start_native_or_fallback || fail "could not start native WireGuard or wireguard-go fallback"
   fi
-  "$WGCTL" configure --socket "$SOCKET" --private-file "$PRIVATE_KEY" --port "$WG_PORT" --peers-file "$PEERS" >> "$LOGFILE" 2>&1 || fail "WireGuard configuration failed"
+  ip addr replace "$WG_ADDRESS" dev wg0 || fail "cannot assign WireGuard address"
+  ip link set up dev wg0 || fail "cannot bring wg0 up"
   add_vpn_policy_route
   sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || write_log WARN "could not enable IPv4 forwarding"
   [ "$ROUTING_MODE" != "lan" ] || [ -n "$LAN_CIDR" ] || fail "lan mode requires LAN_CIDR"
@@ -146,6 +188,7 @@ stop() {
     ip link delete wg0 >/dev/null 2>&1 && write_log INFO "wg0 stopped" || write_log WARN "could not delete wg0"
   fi
   [ ! -e "$SOCKET" ] || rm -f "$SOCKET"
+  rm -f "$BACKEND_FILE"
 }
 
 set_lan_cidr() {
@@ -229,7 +272,15 @@ set_endpoint() {
 }
 
 status() {
-  if [ -S "$SOCKET" ]; then "$WGCTL" status --socket "$SOCKET"; else printf 'status=stopped\n'; fi
+  if ! ip link show wg0 >/dev/null 2>&1; then printf 'status=stopped\n'; return 0; fi
+  backend=$(cat "$BACKEND_FILE" 2>/dev/null || true)
+  if [ "$backend" = userspace ] || [ -S "$SOCKET" ]; then
+    printf 'backend=wireguard-go\n'
+    "$WGCTL" status --socket "$SOCKET"
+  else
+    printf 'backend=kernel\n'
+    "$WGCTL" native-status --device wg0
+  fi
 }
 
 case "${1:-}" in

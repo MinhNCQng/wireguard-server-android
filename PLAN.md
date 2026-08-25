@@ -87,10 +87,9 @@ Do not begin feature work until the target phone passes this gate.
 
 ### Decision
 
-- **`wireguard-go` TUN test works:** use the packaged userspace backend on every supported device.
-- **Test fails:** stop and diagnose the phone's TUN/SELinux/root environment. A rooted phone still needs permission to create a TUN interface.
+At every startup the module attempts to create and configure a kernel-native `wg0` interface first. If either operation fails, it removes any partial interface, records the reason in the module log, and starts the packaged `wireguard-go` backend instead. There is no user-selectable backend setting.
 
-The project deliberately does not use the kernel WireGuard backend. This avoids a dependency on a kernel module that varies by device and ROM. It still requires a tested `wireguard-go` binary for the device ABI, normally `arm64-v8a` and optionally `armeabi-v7a`.
+This gives capable devices kernel performance while keeping the same package compatible with devices whose kernel has no WireGuard support. The browser panel reports the selected backend.
 
 ## 5. Module structure
 

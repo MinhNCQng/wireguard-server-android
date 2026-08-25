@@ -12,6 +12,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"golang.zx2c4.com/wireguard/wgctrl"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 func die(format string, args ...any) {
@@ -118,6 +121,87 @@ func configure(args []string) {
 	}
 }
 
+func nativeConfig(args []string) {
+	fs := flag.NewFlagSet("native-config", flag.ExitOnError)
+	device := fs.String("device", "wg0", "WireGuard device")
+	privateFile := fs.String("private-file", "", "server private key file")
+	port := fs.Int("port", 51820, "UDP port")
+	peersFile := fs.String("peers-file", "", "peer file: name|public_key|address")
+	peerEndpoint := fs.String("peer-endpoint", "", "optional endpoint to apply to configured peers")
+	fs.Parse(args)
+	if *privateFile == "" {
+		die("--private-file is required")
+	}
+	private, err := os.ReadFile(*privateFile)
+	if err != nil {
+		die("read private key: %v", err)
+	}
+	privateKey, err := wgtypes.ParseKey(strings.TrimSpace(string(private)))
+	if err != nil {
+		die("server private key: %v", err)
+	}
+	cfg := wgtypes.Config{PrivateKey: &privateKey, ListenPort: port, ReplacePeers: true}
+	var endpoint *net.UDPAddr
+	if *peerEndpoint != "" {
+		endpoint, err = net.ResolveUDPAddr("udp", *peerEndpoint)
+		if err != nil {
+			die("peer endpoint: %v", err)
+		}
+	}
+	if *peersFile != "" {
+		contents, err := os.ReadFile(*peersFile)
+		if err != nil && !os.IsNotExist(err) {
+			die("read peers: %v", err)
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(contents)), "\n") {
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.Split(line, "|")
+			if len(parts) != 3 {
+				die("invalid peer line")
+			}
+			key, err := wgtypes.ParseKey(strings.TrimSpace(parts[1]))
+			if err != nil {
+				die("peer key: %v", err)
+			}
+			_, network, err := net.ParseCIDR(strings.TrimSpace(parts[2]))
+			if err != nil {
+				die("peer allowed IP: %v", err)
+			}
+			cfg.Peers = append(cfg.Peers, wgtypes.PeerConfig{PublicKey: key, Endpoint: endpoint, ReplaceAllowedIPs: true, AllowedIPs: []net.IPNet{*network}})
+		}
+	}
+	c, err := wgctrl.New()
+	if err != nil {
+		die("open native WireGuard control: %v", err)
+	}
+	defer c.Close()
+	if err := c.ConfigureDevice(*device, cfg); err != nil {
+		die("configure native WireGuard: %v", err)
+	}
+}
+
+func nativeStatus(args []string) {
+	fs := flag.NewFlagSet("native-status", flag.ExitOnError)
+	device := fs.String("device", "wg0", "WireGuard device")
+	fs.Parse(args)
+	c, err := wgctrl.New()
+	if err != nil {
+		die("open native WireGuard control: %v", err)
+	}
+	defer c.Close()
+	d, err := c.Device(*device)
+	if err != nil {
+		die("read native WireGuard: %v", err)
+	}
+	fmt.Printf("interface=%s\nlisten_port=%d\n", d.Name, d.ListenPort)
+	for _, p := range d.Peers {
+		fmt.Printf("public_key=%x\nlast_handshake_time_sec=%d\nrx_bytes=%d\ntx_bytes=%d\n", p.PublicKey[:], p.LastHandshakeTime.Unix(), p.ReceiveBytes, p.TransmitBytes)
+	}
+	fmt.Println("errno=0")
+}
+
 func status(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	socket := fs.String("socket", "", "WireGuard UAPI socket")
@@ -141,7 +225,7 @@ func status(args []string) {
 
 func main() {
 	if len(os.Args) < 2 {
-		die("usage: wgctl keygen|configure|status")
+		die("usage: wgctl keygen|configure|native-config|native-status|status")
 	}
 	switch os.Args[1] {
 	case "keygen":
@@ -152,6 +236,10 @@ func main() {
 		fmt.Printf("private=%s\npublic=%s\n", private, public)
 	case "configure":
 		configure(os.Args[2:])
+	case "native-config":
+		nativeConfig(os.Args[2:])
+	case "native-status":
+		nativeStatus(os.Args[2:])
 	case "status":
 		status(os.Args[2:])
 	default:
