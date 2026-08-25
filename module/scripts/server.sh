@@ -82,6 +82,23 @@ remove_routes() {
   write_log INFO "routing rules removed wan=$wan"
 }
 
+vpn_cidr() {
+  ip route show dev wg0 proto kernel scope link 2>/dev/null | awk 'NR == 1 { print $1 }'
+}
+
+add_vpn_policy_route() {
+  cidr=$(vpn_cidr)
+  [ -n "$cidr" ] || { write_log WARN "could not determine WireGuard subnet for policy route"; return 0; }
+  ip rule add pref 1000 to "$cidr" lookup main 2>/dev/null || true
+  write_log INFO "VPN reply policy route enabled cidr=$cidr"
+}
+
+remove_vpn_policy_route() {
+  cidr=$(vpn_cidr)
+  [ -n "$cidr" ] || return 0
+  while ip rule del pref 1000 to "$cidr" lookup main 2>/dev/null; do :; done
+}
+
 client_allowed_ips() {
   case "$ROUTING_MODE" in
     vpn-only) printf '10.66.66.0/24' ;;
@@ -113,6 +130,7 @@ start() {
     ip link set up dev wg0 || fail "cannot bring wg0 up"
   fi
   "$WGCTL" configure --socket "$SOCKET" --private-file "$PRIVATE_KEY" --port "$WG_PORT" --peers-file "$PEERS" >> "$LOGFILE" 2>&1 || fail "WireGuard configuration failed"
+  add_vpn_policy_route
   sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || write_log WARN "could not enable IPv4 forwarding"
   [ "$ROUTING_MODE" != "lan" ] || [ -n "$LAN_CIDR" ] || fail "lan mode requires LAN_CIDR"
   apply_routes
@@ -123,6 +141,7 @@ start() {
 stop() {
   if [ -f "$PANEL_PID" ]; then kill "$(cat "$PANEL_PID")" 2>/dev/null || true; rm -f "$PANEL_PID"; fi
   remove_routes
+  remove_vpn_policy_route
   if ip link show wg0 >/dev/null 2>&1; then
     ip link delete wg0 >/dev/null 2>&1 && write_log INFO "wg0 stopped" || write_log WARN "could not delete wg0"
   fi
