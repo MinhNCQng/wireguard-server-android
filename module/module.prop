@@ -1,6 +1,6 @@
 id=wireguard-server-ksu
 name=WireGuard Server (KernelSU)
-version=0.3.9
-versionCode=15
+version=0.4.0
+versionCode=16
 author=minhmap
 description=Userspace WireGuard server for rooted Android; configure in WebUI.
