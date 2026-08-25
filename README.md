@@ -9,6 +9,7 @@ Use a rooted Android phone as a WireGuard server through a self-contained Kernel
 - Peer creation/revocation, `.conf` download, QR PNG export, and activity status
 - DuckDNS update on save, boot, and every 10 minutes
 - VPN-only, home-LAN, and full-tunnel routing modes
+- Kernel wake lock while the server runs, keeping it reachable with the screen off
 - Start after boot through KernelSU `service.sh`
 - Browser panel and KernelSU Manager WebUI
 - Rotating module logs
@@ -26,7 +27,7 @@ A target phone needs:
 
 ## Install
 
-1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.3.zip) from KernelSU Manager.
+1. Install [the release ZIP](dist/wireguard-server-ksu-v0.6.5.zip) from KernelSU Manager.
 2. Reboot when KernelSU stages the module.
 3. Forward `51820/UDP` on the home router to the phone’s reserved LAN IP.
 
@@ -86,6 +87,14 @@ Set the LAN CIDR (for example `192.168.1.0/24`) before enabling LAN mode. The mo
 
 New servers default to `full`. Changing routing mode also refreshes the
 exported peer profiles; re-download or re-import a profile after changing it.
+
+## Screen-off operation
+
+While the server is running, the module holds a kernel wake lock so Android
+does not enter deep suspend and stop answering WireGuard packets after the
+screen turns off. When Wi-Fi is the upstream network, it also enables Android's
+high-performance Wi-Fi mode so the radio can receive a new handshake while the
+screen is off. The display remains off, but this increases battery use.
 
 ## Logs
 

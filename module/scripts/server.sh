@@ -21,6 +21,8 @@ SOCKET="$RUNTIME/wg0.sock"
 BACKEND_FILE="$RUNTIME/backend"
 VPN_ROUTE_TABLE=51820
 VPN_ROUTE_PREF=1001
+WAKE_LOCK_NAME=wireguard-server-ksu
+WIFI_PERF_FILE="$RUNTIME/wifi-high-performance"
 
 write_log() {
   mkdir -p "$LOGDIR"
@@ -32,6 +34,37 @@ write_log() {
 }
 
 fail() { write_log ERROR "$1"; printf '%s\n' "$1" >&2; exit 1; }
+
+acquire_wake_lock() {
+  [ -w /sys/power/wake_lock ] || { write_log WARN "kernel wake-lock interface unavailable"; return 0; }
+  printf '%s' "$WAKE_LOCK_NAME" > /sys/power/wake_lock || { write_log WARN "could not acquire wake lock"; return 0; }
+  write_log INFO "wake lock acquired"
+}
+
+release_wake_lock() {
+  [ -w /sys/power/wake_unlock ] || return 0
+  printf '%s' "$WAKE_LOCK_NAME" > /sys/power/wake_unlock || { write_log WARN "could not release wake lock"; return 0; }
+  write_log INFO "wake lock released"
+}
+
+enable_wifi_high_performance() {
+  case "$1" in wlan*) ;; *) return 0 ;; esac
+  # A CPU wake lock does not stop the Wi-Fi firmware from entering power-save
+  # mode. Keep it ready to receive a new WireGuard handshake.
+  if cmd wifi force-hi-perf-mode enabled >/dev/null 2>&1; then
+    printf '%s\n' "$1" > "$WIFI_PERF_FILE"
+    write_log INFO "Wi-Fi high-performance mode enabled interface=$1"
+  else
+    write_log WARN "could not enable Wi-Fi high-performance mode interface=$1"
+  fi
+}
+
+disable_wifi_high_performance() {
+  [ -f "$WIFI_PERF_FILE" ] || return 0
+  cmd wifi force-hi-perf-mode disabled >/dev/null 2>&1 || write_log WARN "could not restore normal Wi-Fi power mode"
+  rm -f "$WIFI_PERF_FILE"
+  write_log INFO "Wi-Fi high-performance mode disabled"
+}
 
 migrate_data() {
   [ -d "$DATA" ] && return 0
@@ -111,6 +144,7 @@ apply_routes() {
   iptables -I FORWARD 1 -i "$wan" -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
   iptables -t nat -I POSTROUTING 1 -s 10.66.66.0/24 -o "$wan" -j MASQUERADE
   printf '%s\n' "$wan" > "$RUNTIME/wan-interface"
+  enable_wifi_high_performance "$wan"
   write_log INFO "routing mode=$ROUTING_MODE wan=$wan"
 }
 
@@ -222,10 +256,13 @@ start() {
   [ "$ROUTING_MODE" != "lan" ] || [ -n "$LAN_CIDR" ] || fail "lan mode requires LAN_CIDR"
   apply_routes
   start_panel
+  acquire_wake_lock
   write_log INFO "wg0 started port=$WG_PORT address=$WG_ADDRESS"
 }
 
 stop() {
+  release_wake_lock
+  disable_wifi_high_performance
   if [ -f "$PANEL_PID" ]; then kill "$(cat "$PANEL_PID")" 2>/dev/null || true; rm -f "$PANEL_PID"; fi
   remove_routes
   remove_vpn_policy_route
