@@ -104,6 +104,18 @@ screen is off. The display remains off, but this increases battery use.
 
 Server keys, peers, DuckDNS settings, and logs are stored under `/data/adb/wireguard-server-ksu`, outside the replaceable KernelSU module directory, so they survive module ZIP updates.
 
+## Build
+
+On Linux, install Go plus `zip` and `unzip`, then run:
+
+```sh
+./build.sh
+```
+
+The script cross-compiles `wgctl` and `wgpanel` for Android arm64, keeps the
+bundled `wireguard-go` binary, and writes a verified ZIP to `dist/` using the
+version in `module/module.prop`.
+
 ## Repository layout
 
 ```text
